@@ -1,3 +1,11 @@
+class AWSHost:
+    def __init__(self, id, ip, name, instance_id, malware_protection_on=False, malware_protection_status=""):
+        self.id = id
+        self.ip = ip
+        self.name = name
+        self.instance_id = instance_id
+        self.malware_protection_status = malware_protection_status
+        self.malware_protection_on = malware_protection_on
 
 
 class Host:

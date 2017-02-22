@@ -12,42 +12,46 @@ logger = logging.getLogger(__name__)
 logging.getLogger().setLevel(logging.INFO)
 
 
-def aws_configrule_handler(event, context):
+def is_instance_protected_by_malware_handler(event, context):
     logger.info('Event: %s' % json.dumps(event))
 
     compliant = "NON_COMPLIANT"
-    print('yoyo')
-    print(event)
+    host_compliant = False
     params = json.loads(event["ruleParameters"])
     invoking_event = json.loads(event['invokingEvent'])
     configuration_item = invoking_event["configurationItem"]
+    instance_id = configuration_item['resourceId']
+    logger.info('InstanceId: %s' % instance_id)
+    result = {'annotation': 'AV status to go here'}
 
     user = params['dsUser']
     password = params['dsPassword']
     tenant = params['dsTenant']
-    print("user:", user)
-    print("passwrod:", password)
-    print("tenandt:", tenant)
 
     try:
-        print("in try")
         dsm = Manager(user, password, tenant)
-        print("api version:", dsm.get_api_version())
-        compliant = dsm.antimalware_on("ec2-54-197-177-170.compute-1.amazonaws.com")
-        print("session id")
-        print(dsm.session_id)
+        host = dsm.does_aws_host_have_malware_turned_on(instance_id)
+        if host:
+            host_compliant = host.malware_protection_on
+            result['annotation'] = host.malware_protection_status
+        else:
+            host_compliant = False
+            result['annotation'] = "Host not found in Deep Security Inventory."
+
         dsm.end_session()
     except Exception as e:
         print(e)
 
-    result = {'annotation': 'AV status to go here'}
-    result['result'] = 'success'
 
-    if compliant:
+    if host_compliant:
         compliant = "COMPLIANT"
+        result['result'] = 'success'
+    else:
+        compliant = "NON_COMPLIANT"
+        result['result'] = 'failure'
 
 
-    evaluation = { "compliance_type": compliant, "annotation": "This resource is compliant with the rule."}
+    evaluation = { "compliance_type": compliant, "annotation": result['annotation']}
     config = boto3.client('config')
 
     response = config.put_evaluations(

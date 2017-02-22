@@ -7,6 +7,7 @@ import requests
 from sslcontext import create_ssl_context, HTTPSTransport
 from config import Config
 from host_utils import HostUtils
+from host import AWSHost
 
 
 class Manager:
@@ -47,6 +48,7 @@ class Manager:
         return self.client.service.getApiVersion()
 
     def get_host_by_name(self, name):
+        host_details = self.client.factory.create("EnumHostDetailLevel")
         response = self.client.service.hostRetrieveByName(name, sID=self.session_id)
         return HostUtils(self.config).create_host(response)
 
@@ -54,14 +56,54 @@ class Manager:
         return self.client.service.hostGetStatus(int(id), self.session_id)
 
 
-    def antimalware_on(self, host_name):
-        host = self.get_host_by_name(host_name)
+    def _host_detail_retreive(self):
+        host_filter_type = self.client.factory.create("EnumHostFilterType")
+        host_details = self.client.factory.create("EnumHostDetailLevel")
+        host_filter_transport = self.client.factory.create("HostFilterTransport")
+        host_filter_transport['type'] = host_filter_type['ALL_HOSTS']
+        data = {
+                    'sID': self.session_id,
+                    'hostFilter': host_filter_transport,
+                    'hostDetailLevel': host_details['HIGH']
+                }
+        response = self.client.service.hostDetailRetrieve(sID=self.session_id, hostDetailLevel=host_details['HIGH'], hostFilter=host_filter_transport)
+        return response
+
+
+
+    def process_aws_hosts(self):
+        hosts = []
+        host_detail_transport = self._host_detail_retreive()
+        for host in host_detail_transport:
+            if host.cloudObjectType == "AMAZON_VM":
+                instance_id = host.cloudObjectInstanceId
+                id = host.ID
+                ip = host.lastIPUsed
+                name = host.name
+                aws_host =  AWSHost(id, ip, name, instance_id)
+                hosts.append(aws_host)
+
+        return hosts
+
+
+    def does_aws_host_have_malware_turned_on(self, instance_id):
+        hosts = self.process_aws_hosts()
+        host = [x for x in hosts if x.name == instance_id or x.ip == instance_id or x.instance_id == instance_id]
+
+        if host:
+            return self.antimalware_on(host[0])
+        else:
+            return None
+
+
+    def antimalware_on(self, host):
         hs = self.host_status(host.id)
         result = hs.protectionStatusTransports[0][0].antiMalwareStatus
         ur = result.__repr__()
-        print ur
+        host.malware_protection_status = ur
         malware_off = (u"Off" in result.__repr__()) or (u"Not" in result.__repr__())
-        return not malware_off
+        host.malware_protection_on = not malware_off
+        return host
 
     def end_session(self):
         self.client.service.endSession(sID=self.session_id)
